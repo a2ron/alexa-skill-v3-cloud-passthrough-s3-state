@@ -47,9 +47,9 @@ exports.handler = (request, context, callback) => {
             break;
         default:
             {
-                let manageStateResponse = (currentState) => {
-                    let headerName = directive.header.name == "ReportState" ? "StateReport" : "Response";
-                    let response = alexa.generateResponseState(directive, currentState, headerName);
+                let manageStateResponse = (currentStates) => {
+                    let response = alexa.generateResponseState(directive, currentStates[state.getEndpointId(directive)]);
+                    log("Response", JSON.stringify(response))
                     callback(null, response);
                 };
                 let manageErrorResponse = (e) => {
@@ -64,14 +64,13 @@ exports.handler = (request, context, callback) => {
                     case "TurnOff":
                     case "SetBrightness":
                     case "SetColor":
+                    case "Activate":
                         state.get()
-                            .then((previousState) => {
-                                //log("PreviousState", JSON.stringify(previousState))
-                                let newState = state.getNewState(directive, previousState);
-                                //log("NewState", JSON.stringify(newState))
+                            .then((previousStates) => {
+                                let newState = state.getNewState(directive, previousStates);
                                 Promise.all([
                                         passthrough(newState),
-                                        state.put(newState)
+                                        state.put(newState, previousStates)
                                     ])
                                     .then(res => {
                                         manageStateResponse(res[1]);
@@ -96,4 +95,3 @@ exports.handler = (request, context, callback) => {
             }
     }
 };
-
