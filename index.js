@@ -14,13 +14,27 @@ alexa.setLogger(log);
 function passthrough(newState) {
 
     return new Promise((resolve, reject) => {
+
+        let envKeyEndpointId = newState.endpointId.replace(/-/g, "_");
+        let host = process.env.PASSTHROUGH_HOST;
+        let path = process.env.PASSTHROUGH_PATH;
+        let body = JSON.stringify(newState);
+        if (process.env[envKeyEndpointId + "_host"]) {
+            host = process.env[envKeyEndpointId + "_host"];
+            if (host && host.indexOf("ifttt") >= 0) {
+                body = "";
+            }
+        }
+        if (process.env[envKeyEndpointId + "_path"]) {
+            path = process.env[envKeyEndpointId + "_path"];
+        }
         let post_req = https.request({
-            host: process.env.PASSTHROUGH_HOST,
-            path: process.env.PASSTHROUGH_PATH,
+            host: host,
+            path: path,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(JSON.stringify(newState))
+                'Content-Length': Buffer.byteLength(body)
             }
         }, function(res) {
             resolve();
@@ -29,9 +43,9 @@ function passthrough(newState) {
             log("passthrough", "Got error: " + e.message);
             reject();
         });
-
+        //log("state",body)
         // post the data
-        post_req.write(JSON.stringify(newState));
+        post_req.write(body);
         post_req.end();
     });
 
@@ -40,7 +54,19 @@ function passthrough(newState) {
 
 exports.handler = (request, context, callback) => {
     let directive = request.directive;
-
+    if (request.source == "aws.events") {
+        console.log('Event triggered, turning off VIRTUAL PRESENCE KITCHEN');
+        directive = {
+            "header": {
+                "namespace": "Alexa.PowerController",
+                "name": "TurnOff"
+            },
+            "endpoint": {
+                "endpointId": "a2-virtual-presence-kitchen"
+            }
+        }
+    }
+    let sendPassthrough = true;
     switch (directive.header.namespace) {
         case "Alexa.Discovery":
             alexa.handleDiscovery(directive, callback);
@@ -49,7 +75,7 @@ exports.handler = (request, context, callback) => {
             {
                 let manageStateResponse = (currentStates) => {
                     let response = alexa.generateResponseState(directive, currentStates[state.getEndpointId(directive)]);
-                    log("Response", JSON.stringify(response))
+                    //log("Response", JSON.stringify(response))
                     callback(null, response);
                 };
                 let manageErrorResponse = (e) => {
@@ -61,6 +87,28 @@ exports.handler = (request, context, callback) => {
                 switch (directive.header.name) {
                     case "AdjustBrightness":
                     case "TurnOn":
+                        if (directive.endpoint.endpointId == "a2-virtual-presence-kitchen") {
+                            sendPassthrough = false;
+                            let ruleName = "launch-lambda-rule"
+                            let AWS = require('aws-sdk');
+                            let date = new Date(new Date().getTime() + 2 * 60000);
+                            AWS.config.update({ region: 'eu-west-1' });
+                            // Create CloudWatchEvents service object
+                            var cwevents = new AWS.CloudWatchEvents({ apiVersion: '2015-10-07' });
+                            var params = {
+                                Name: ruleName,
+                                ScheduleExpression: `cron(${date.getUTCMinutes()} ${date.getUTCHours()} ${date.getDate()} ${date.getMonth()+1} ? ${date.getFullYear()})`,
+                                State: 'ENABLED'
+                            };
+                            cwevents.putRule(params, function(err, data) {
+                                if (err) {
+                                    console.log("Error putting Rule", err);
+                                }
+                                /* else {
+                                     console.log("Success putting Rule");
+                                 }*/
+                            });
+                        }
                     case "TurnOff":
                     case "SetBrightness":
                     case "SetColor":
@@ -68,12 +116,14 @@ exports.handler = (request, context, callback) => {
                         state.get()
                             .then((previousStates) => {
                                 let newState = state.getNewState(directive, previousStates);
-                                Promise.all([
-                                        passthrough(newState),
-                                        state.put(newState, previousStates)
-                                    ])
+                                let promises = [];
+                                if (sendPassthrough) {
+                                    promises.push(passthrough(newState));
+                                }
+                                promises.push(state.put(newState, previousStates));
+                                Promise.all(promises)
                                     .then(res => {
-                                        manageStateResponse(res[1]);
+                                        manageStateResponse(res[promises.length - 1]);
                                     })
                                     .catch(manageErrorResponse);
                             })
