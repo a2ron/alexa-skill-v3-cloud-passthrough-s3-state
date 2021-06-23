@@ -3,11 +3,26 @@ const
     AWS = require('aws-sdk'),
     S3 = new AWS.S3();
 
-let log = null;
+let log = null
+
+let getRelatedEndpointId = directive => {
+    let devices = alexa.DEVICE_ENDPOINTS.filter(device => device.endpointId == directive.endpoint.endpointId);
+    if (devices.length > 0 && devices[0].relationships && devices[0].relationships.isConnectedBy &&
+        devices[0].relationships.isConnectedBy.endpointId != null) {
+        return devices[0].relationships.isConnectedBy.endpointId;
+    }
+    return null;
+}
 
 let getEndpointId = directive => {
-    return alexa.enpointsMatches[directive.endpoint.endpointId] ? alexa.enpointsMatches[directive.endpoint.endpointId] : directive.endpoint.endpointId;
+    //check relationships
+    let relatedEndpointId = getRelatedEndpointId(directive);
+    if (relatedEndpointId != null) {
+        return relatedEndpointId;
+    }
+    return directive.endpoint.endpointId;
 };
+
 module.exports = {
 
     setLogger: _log => {
@@ -17,10 +32,10 @@ module.exports = {
     get: (stateResponse) => {
         return new Promise((resolve, reject) => {
             S3.getObject({
-                    Bucket: 'thinger',
-                    Key: 'state.json',
-                    ResponseContentType: 'application/json'
-                })
+                Bucket: 'thinger',
+                Key: 'state.json',
+                ResponseContentType: 'application/json'
+            })
                 .promise()
                 .then((res) => {
                     resolve(JSON.parse(res.Body.toString('utf-8')));
@@ -33,6 +48,7 @@ module.exports = {
     },
 
     getEndpointId: getEndpointId,
+
 
     getNewState: (directive, _previousStates) => {
 
@@ -61,15 +77,23 @@ module.exports = {
             newState.scene = directive.header.name;
             newState.setScene = directive.header.name;
         }
-        if (directive.payload.brightness) {
-            newState.brightness = directive.payload.brightness;
+        if (directive.payload) {
+            if (directive.payload.brightness) {
+                newState.brightness = directive.payload.brightness;
+            }
+            else if (directive.payload.color) {
+                newState.color = directive.payload.color;
+            }
         }
-        else if (directive.payload.color) {
-            newState.color = directive.payload.color;
-        }
-        
-        if(previousState.powerState == "OFF" && newState.powerState == "ON"){
+
+        if (previousState.powerState == "OFF" && newState.powerState == "ON") {
             newState.setScene = newState.scene;
+        }
+        //hyperion effects
+        if (getRelatedEndpointId(directive) == "a2-light-v3") {
+            newState.scene = directive.endpoint.endpointId;
+            newState.setScene = directive.endpoint.endpointId;
+            newState.powerState = "ON";
         }
 
         return newState;
@@ -80,10 +104,10 @@ module.exports = {
         return new Promise((resolve, reject) => {
 
             S3.putObject({
-                    Bucket: 'thinger',
-                    Key: 'state.json',
-                    Body: JSON.stringify(previousStates)
-                })
+                Bucket: 'thinger',
+                Key: 'state.json',
+                Body: JSON.stringify(previousStates)
+            })
                 .promise()
                 .then(() => {
                     resolve(previousStates);

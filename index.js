@@ -36,10 +36,10 @@ function passthrough(newState) {
                 'Content-Type': 'application/json',
                 'Content-Length': Buffer.byteLength(body)
             }
-        }, function(res) {
+        }, function (res) {
             resolve();
         });
-        post_req.on('error', function(e) {
+        post_req.on('error', function (e) {
             log("passthrough", "Got error: " + e.message);
             reject();
         });
@@ -97,10 +97,10 @@ exports.handler = (request, context, callback) => {
                             var cwevents = new AWS.CloudWatchEvents({ apiVersion: '2015-10-07' });
                             var params = {
                                 Name: ruleName,
-                                ScheduleExpression: `cron(${date.getUTCMinutes()} ${date.getUTCHours()} ${date.getDate()} ${date.getMonth()+1} ? ${date.getFullYear()})`,
+                                ScheduleExpression: `cron(${date.getUTCMinutes()} ${date.getUTCHours()} ${date.getDate()} ${date.getMonth() + 1} ? ${date.getFullYear()})`,
                                 State: 'ENABLED'
                             };
-                            cwevents.putRule(params, function(err, data) {
+                            cwevents.putRule(params, function (err, data) {
                                 if (err) {
                                     console.log("Error putting Rule", err);
                                 }
